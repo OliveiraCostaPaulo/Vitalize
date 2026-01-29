@@ -1,0 +1,7 @@
+{
+  "name": "Vitalize - Micro SaaS de Presença",
+  "description": "Um recondicionador de estado emocional e corporal baseado em regulação do sistema nervoso e IA.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
