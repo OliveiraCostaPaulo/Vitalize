@@ -1,12 +1,14 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Layout } from './components/Layout';
 import { CheckInForm } from './components/CheckInForm';
 import { ProtocolPlayer } from './components/ProtocolPlayer';
 import { PremiumModal } from './components/PremiumModal';
+import { AdminView } from './components/AdminView';
 import { AppState, UserCheckIn, Protocol } from './types';
-import { ANCHOR_PHRASES, PROTOCOLS } from './constants';
+import { ANCHOR_PHRASES, PROTOCOLS as STATIC_PROTOCOLS } from './constants';
 import { getProtocolSuggestion } from './services/geminiService';
+import { dbService, supabase } from './services/dbService';
 
 const INITIAL_STATE: AppState = {
   isLoggedIn: false,
@@ -18,11 +20,37 @@ const INITIAL_STATE: AppState = {
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>(INITIAL_STATE);
-  const [view, setView] = useState<'landing' | 'onboarding' | 'checkin' | 'dashboard' | 'protocol'>('landing');
+  const [view, setView] = useState<'landing' | 'onboarding' | 'checkin' | 'dashboard' | 'protocol' | 'admin'>('landing');
   const [activeProtocol, setActiveProtocol] = useState<Protocol | null>(null);
   const [suggestion, setSuggestion] = useState<{ protocolId: string; reason: string } | null>(null);
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [protocols, setProtocols] = useState<Protocol[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadProtocols = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Se o supabase não estiver configurado, usamos os estáticos imediatamente
+      if (!supabase) {
+        setProtocols(STATIC_PROTOCOLS);
+        setLoading(false);
+        return;
+      }
+
+      const data = await dbService.getProtocols();
+      setProtocols(data.length > 0 ? data : STATIC_PROTOCOLS);
+    } catch (e) {
+      console.error("Erro ao carregar protocolos, usando fallback estático.");
+      setProtocols(STATIC_PROTOCOLS);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadProtocols();
+  }, [loadProtocols]);
 
   const dailyPhrase = useMemo(() => {
     const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 24));
@@ -35,7 +63,6 @@ export default function App() {
   };
 
   const onCheckInComplete = async (data: UserCheckIn) => {
-    // Check if free user has already done a checkin today
     if (!appState.isPremium && appState.dailyCheckInDone) {
       setShowPremiumModal(true);
       setView('dashboard');
@@ -52,7 +79,7 @@ export default function App() {
     setIsSuggesting(true);
     setView('dashboard');
     
-    const result = await getProtocolSuggestion(data);
+    const result = await getProtocolSuggestion(data, protocols);
     setSuggestion(result);
     setIsSuggesting(false);
   };
@@ -70,6 +97,17 @@ export default function App() {
     setAppState(prev => ({ ...prev, isPremium: true }));
     setShowPremiumModal(false);
   };
+
+  if (loading && view !== 'landing') {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center h-full">
+          <div className="w-8 h-8 border-2 border-stone-800 border-t-transparent rounded-full animate-spin"></div>
+          <p className="mt-4 text-stone-400 text-xs uppercase tracking-widest font-medium">Sincronizando estados...</p>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
@@ -102,7 +140,7 @@ export default function App() {
         <div className="flex flex-col h-full animate-in fade-in slide-in-from-right-4 duration-500">
           <h2 className="serif text-4xl mb-6 mt-12">Isso não é terapia.</h2>
           <p className="text-stone-500 font-light text-lg mb-8 leading-relaxed">
-            É um espaço para seu corpo aprender que é seguro existir. Através de protocolos de 5-10 minutos, mudamos seu estado interno.
+            Mudamos seu estado interno enviando sinais de segurança para seu corpo através de protocolos guiados.
           </p>
           <div className="mt-auto pb-12">
              <button 
@@ -117,13 +155,11 @@ export default function App() {
 
       {view === 'dashboard' && (
         <div className="animate-in fade-in duration-500 space-y-10">
-          {/* Daily Anchor */}
           <div className="bg-white/40 p-8 rounded-[2rem] border border-white/60 shadow-sm">
             <span className="text-[10px] uppercase tracking-widest text-stone-400 font-bold mb-3 block">Âncora de hoje</span>
             <p className="serif text-2xl text-stone-800 leading-snug italic">"{dailyPhrase}"</p>
           </div>
 
-          {/* AI Suggestion or Check-in Button */}
           {!appState.lastCheckIn || !suggestion ? (
             <div className="text-center py-8">
                <h3 className="serif text-3xl mb-6">Como você está agora?</h3>
@@ -148,7 +184,7 @@ export default function App() {
                ) : (
                  <div className="bg-stone-800 p-6 rounded-[2rem] text-white shadow-2xl">
                    <p className="text-stone-400 text-sm mb-4 italic font-light">"{suggestion.reason}"</p>
-                   {PROTOCOLS.filter(p => p.id === suggestion.protocolId).map(p => (
+                   {protocols.filter(p => p.id === suggestion.protocolId).map(p => (
                      <div key={p.id} className="flex items-center justify-between">
                        <div>
                          <h4 className="text-lg font-light mb-1">{p.title}</h4>
@@ -167,11 +203,15 @@ export default function App() {
             </div>
           )}
 
-          {/* Library */}
           <div className="space-y-6">
-            <h3 className="serif text-2xl">Explorar Protocolos</h3>
+            <h3 className="serif text-2xl">Biblioteca</h3>
+            {!supabase && (
+              <div className="p-3 bg-stone-100 rounded-xl text-[10px] text-stone-500 font-medium uppercase tracking-tighter">
+                ⚠️ Modo Offline: Configure o Supabase para gerenciar conteúdos.
+              </div>
+            )}
             <div className="space-y-4">
-              {PROTOCOLS.map(p => (
+              {protocols.map(p => (
                 <button 
                   key={p.id}
                   onClick={() => startProtocol(p)}
@@ -193,6 +233,15 @@ export default function App() {
               ))}
             </div>
           </div>
+
+          <div className="pt-12 text-center">
+            <button 
+              onClick={() => setView('admin')}
+              className="text-[10px] text-stone-300 hover:text-stone-500 font-bold tracking-widest uppercase transition-colors"
+            >
+              Painel Administrativo
+            </button>
+          </div>
         </div>
       )}
 
@@ -204,6 +253,14 @@ export default function App() {
         <ProtocolPlayer 
           protocol={activeProtocol} 
           onClose={() => setView('dashboard')} 
+        />
+      )}
+
+      {view === 'admin' && (
+        <AdminView 
+          protocols={protocols} 
+          onRefresh={loadProtocols} 
+          onBack={() => setView('dashboard')} 
         />
       )}
 
