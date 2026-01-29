@@ -1,29 +1,27 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { UserCheckIn, Protocol } from "../types";
+import { PROTOCOLS } from "../constants";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-export async function getProtocolSuggestion(checkIn: UserCheckIn, protocols: Protocol[]): Promise<{ 
+export async function getProtocolSuggestion(checkIn: UserCheckIn): Promise<{ 
   protocolId: string; 
   reason: string; 
 }> {
-  if (!protocols || protocols.length === 0) {
-    return { protocolId: '', reason: 'Nenhum protocolo disponível no momento.' };
-  }
-
   const prompt = `
     A user just completed a state check-in:
     - Body state: ${checkIn.body}
     - Predominant emotion: ${checkIn.emotion}
     - Vital energy: ${checkIn.energy}
 
-    Based on these inputs, recommend ONE of the following protocols from our database:
-    ${protocols.map(p => `${p.id}: ${p.title} - ${p.description}`).join('\n')}
+    Based on these inputs, recommend ONE of the following protocols:
+    ${PROTOCOLS.map(p => `${p.id}: ${p.title} - ${p.description}`).join('\n')}
 
     Rules:
-    - Return exactly one protocol ID that MUST exist in the list above.
+    - Return exactly one protocol ID.
     - Provide a short, human, comforting reason (1 sentence) in Portuguese.
+    - Example: "Para o estado que você relatou, este protocolo ajuda seu corpo a sair da defesa."
   `;
 
   try {
@@ -44,7 +42,9 @@ export async function getProtocolSuggestion(checkIn: UserCheckIn, protocols: Pro
     });
 
     const result = JSON.parse(response.text || "{}");
-    const validId = protocols.find(p => p.id === result.protocolId) ? result.protocolId : protocols[0].id;
+    
+    // Fallback logic if AI fails or returns invalid ID
+    const validId = PROTOCOLS.find(p => p.id === result.protocolId) ? result.protocolId : PROTOCOLS[0].id;
     
     return {
       protocolId: validId,
@@ -53,8 +53,8 @@ export async function getProtocolSuggestion(checkIn: UserCheckIn, protocols: Pro
   } catch (error) {
     console.error("Gemini Suggestion Error:", error);
     return {
-      protocolId: protocols[0].id,
-      reason: "Para o seu estado atual, este protocolo de segurança é o ponto de partida ideal."
+      protocolId: PROTOCOLS[0].id,
+      reason: "Para o seu estado atual, este protocolo básico de segurança é o ponto de partida ideal."
     };
   }
 }
