@@ -2,9 +2,13 @@
 import { createClient } from '@supabase/supabase-js';
 import { Protocol } from '../types';
 
-// Tenta buscar de múltiplas formas comuns em ambientes de deploy
-const supabaseUrl = process.env.VITE_SUPABASE_URL || (window as any)._env_?.VITE_SUPABASE_URL;
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || (window as any)._env_?.VITE_SUPABASE_ANON_KEY;
+// Função auxiliar para pegar variáveis de ambiente de forma segura
+const getEnv = (key: string) => {
+  return (window as any).process?.env?.[key] || (process as any)?.env?.[key] || "";
+};
+
+const supabaseUrl = getEnv('VITE_SUPABASE_URL');
+const supabaseAnonKey = getEnv('VITE_SUPABASE_ANON_KEY');
 
 export const supabase = (supabaseUrl && supabaseAnonKey) 
   ? createClient(supabaseUrl, supabaseAnonKey) 
@@ -25,7 +29,7 @@ export const dbService = {
         .order('created_at', { ascending: true });
       
       if (error) throw error;
-      return data as Protocol[];
+      return data as Protocol[] || [];
     } catch (e) {
       console.error('Erro Supabase:', e);
       return [];
