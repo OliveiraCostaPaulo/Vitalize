@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import { Protocol } from '../types';
+import { upsertProtocol, deleteProtocolFromDb } from '../services/supabaseClient';
 
 interface AdminViewProps {
   protocols: Protocol[];
@@ -11,6 +12,7 @@ interface AdminViewProps {
 export const AdminView: React.FC<AdminViewProps> = ({ protocols, onSave, onBack }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Protocol>>({});
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleEdit = (p: Protocol) => {
     setEditingId(p.id);
@@ -29,23 +31,35 @@ export const AdminView: React.FC<AdminViewProps> = ({ protocols, onSave, onBack 
     });
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.title || !formData.id) return;
+    setIsSaving(true);
 
-    let newProtocols: Protocol[];
-    if (editingId === 'new') {
-      newProtocols = [...protocols, formData as Protocol];
+    const success = await upsertProtocol(formData);
+    
+    if (success) {
+      let newProtocols: Protocol[];
+      if (editingId === 'new') {
+        newProtocols = [...protocols, formData as Protocol];
+      } else {
+        newProtocols = protocols.map(p => p.id === editingId ? (formData as Protocol) : p);
+      }
+      onSave(newProtocols);
+      setEditingId(null);
     } else {
-      newProtocols = protocols.map(p => p.id === editingId ? (formData as Protocol) : p);
+      alert("Erro ao salvar no banco de dados. Verifique sua conexão.");
     }
-
-    onSave(newProtocols);
-    setEditingId(null);
+    setIsSaving(false);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Tem certeza que deseja excluir este protocolo?')) {
-      onSave(protocols.filter(p => p.id !== id));
+      const success = await deleteProtocolFromDb(id);
+      if (success) {
+        onSave(protocols.filter(p => p.id !== id));
+      } else {
+        alert("Erro ao deletar do banco de dados.");
+      }
     }
   };
 
@@ -112,7 +126,13 @@ export const AdminView: React.FC<AdminViewProps> = ({ protocols, onSave, onBack 
           </div>
 
           <div className="flex gap-3 pt-4">
-            <button onClick={handleSave} className="flex-1 py-3 bg-stone-800 text-white rounded-xl font-medium shadow-md">Salvar</button>
+            <button 
+              onClick={handleSave} 
+              disabled={isSaving}
+              className={`flex-1 py-3 bg-stone-800 text-white rounded-xl font-medium shadow-md ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              {isSaving ? 'Salvando...' : 'Salvar'}
+            </button>
             <button onClick={() => setEditingId(null)} className="flex-1 py-3 bg-stone-100 text-stone-600 rounded-xl font-medium">Cancelar</button>
           </div>
         </div>

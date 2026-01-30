@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Layout } from './components/Layout';
 import { CheckInForm } from './components/CheckInForm';
@@ -8,6 +7,7 @@ import { AdminView } from './components/AdminView';
 import { AppState, UserCheckIn, Protocol } from './types';
 import { ANCHOR_PHRASES, PROTOCOLS as STATIC_PROTOCOLS } from './constants';
 import { getProtocolSuggestion } from './services/geminiService';
+import { fetchProtocols, saveCheckIn } from './services/supabaseClient';
 
 const INITIAL_STATE: AppState = {
   isLoggedIn: false,
@@ -24,17 +24,28 @@ export default function App() {
   const [suggestion, setSuggestion] = useState<{ protocolId: string; reason: string } | null>(null);
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   
-  // Dynamic Protocols State
-  const [protocols, setProtocols] = useState<Protocol[]>(() => {
-    const saved = localStorage.getItem('vitalize_protocols');
-    return saved ? JSON.parse(saved) : STATIC_PROTOCOLS;
-  });
+  const [protocols, setProtocols] = useState<Protocol[]>(STATIC_PROTOCOLS);
 
-  // Persist protocols on change
   useEffect(() => {
-    localStorage.setItem('vitalize_protocols', JSON.stringify(protocols));
-  }, [protocols]);
+    async function initData() {
+      const dbProtocols = await fetchProtocols();
+      if (dbProtocols && dbProtocols.length > 0) {
+        const mapped = dbProtocols.map((p: any) => ({
+          id: p.id,
+          title: p.title,
+          description: p.description,
+          duration: p.duration,
+          premium: p.premium,
+          audioUrl: p.audio_url || p.audioUrl
+        }));
+        setProtocols(mapped);
+      }
+      setIsLoading(false);
+    }
+    initData();
+  }, []);
 
   const dailyPhrase = useMemo(() => {
     const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 24));
@@ -53,6 +64,9 @@ export default function App() {
       return;
     }
 
+    // Salva no Supabase de forma assíncrona (não bloqueia a UI)
+    saveCheckIn(data);
+
     setAppState(prev => ({
       ...prev,
       lastCheckIn: data,
@@ -63,7 +77,6 @@ export default function App() {
     setIsSuggesting(true);
     setView('dashboard');
     
-    // IA Suggestion using current dynamic protocols
     const result = await getProtocolSuggestion(data);
     setSuggestion(result);
     setIsSuggesting(false);
@@ -82,6 +95,17 @@ export default function App() {
     setAppState(prev => ({ ...prev, isPremium: true }));
     setShowPremiumModal(false);
   };
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center h-full text-stone-400">
+          <div className="w-8 h-8 border-2 border-stone-200 border-t-stone-800 rounded-full animate-spin mb-4"></div>
+          <p className="text-sm font-light italic">Sincronizando frequências...</p>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
@@ -129,13 +153,11 @@ export default function App() {
 
       {view === 'dashboard' && (
         <div className="animate-in fade-in duration-500 space-y-10">
-          {/* Daily Anchor */}
           <div className="bg-white/40 p-8 rounded-[2rem] border border-white/60 shadow-sm">
             <span className="text-[10px] uppercase tracking-widest text-stone-400 font-bold mb-3 block">Âncora de hoje</span>
             <p className="serif text-2xl text-stone-800 leading-snug italic">"{dailyPhrase}"</p>
           </div>
 
-          {/* AI Suggestion */}
           {!appState.lastCheckIn || !suggestion ? (
             <div className="text-center py-8">
                <h3 className="serif text-3xl mb-6">Como você está agora?</h3>
@@ -179,7 +201,6 @@ export default function App() {
             </div>
           )}
 
-          {/* Library */}
           <div className="space-y-6">
             <h3 className="serif text-2xl">Explorar Protocolos</h3>
             <div className="space-y-4">
@@ -206,7 +227,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Admin Entry Hook (footer of dashboard) */}
           <div className="pt-12 text-center">
             <button 
               onClick={() => setView('admin')}
