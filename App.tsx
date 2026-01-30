@@ -29,16 +29,20 @@ export default function App() {
   
   const [protocols, setProtocols] = useState<Protocol[]>(STATIC_PROTOCOLS);
 
-  // Check for Admin URL on mount and setup protocols
   useEffect(() => {
     async function initData() {
-      // 1. Check if user is trying to access /admin
-      const path = window.location.pathname;
-      if (path === '/admin' || path.endsWith('/admin')) {
+      // 1. Verificar acesso administrativo via URL (?curador=true ou #admin)
+      const params = new URLSearchParams(window.location.search);
+      const isCuradorParam = params.get('curador') === 'true';
+      const isCuradorHash = window.location.hash === '#admin';
+      
+      if (isCuradorParam || isCuradorHash) {
         setView('admin');
+        // Limpar a URL para não ficar óbvio
+        window.history.replaceState({}, '', window.location.pathname);
       }
 
-      // 2. Load dynamic data
+      // 2. Carregar protocolos do banco
       const dbProtocols = await fetchProtocols();
       if (dbProtocols && dbProtocols.length > 0) {
         const mapped = dbProtocols.map((p: any) => ({
@@ -104,10 +108,8 @@ export default function App() {
     setShowPremiumModal(false);
   };
 
-  const handleBackFromAdmin = () => {
-    // Clear the /admin path from the URL without reloading
-    window.history.pushState({}, '', '/');
-    setView('dashboard');
+  const handleSecretAdminTrigger = () => {
+    setView('admin');
   };
 
   if (isLoading) {
@@ -122,7 +124,7 @@ export default function App() {
   }
 
   return (
-    <Layout>
+    <Layout onLogoClick={handleSecretAdminTrigger}>
       {view === 'landing' && (
         <div className="flex flex-col items-center justify-center h-full text-center animate-in fade-in duration-1000">
           <div className="mb-12">
@@ -258,7 +260,7 @@ export default function App() {
         <AdminView 
           protocols={protocols} 
           onSave={setProtocols} 
-          onBack={handleBackFromAdmin} 
+          onBack={() => setView('dashboard')} 
         />
       )}
 
