@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Layout } from './components/Layout';
 import { CheckInForm } from './components/CheckInForm';
@@ -28,8 +29,16 @@ export default function App() {
   
   const [protocols, setProtocols] = useState<Protocol[]>(STATIC_PROTOCOLS);
 
+  // Check for Admin URL on mount and setup protocols
   useEffect(() => {
     async function initData() {
+      // 1. Check if user is trying to access /admin
+      const path = window.location.pathname;
+      if (path === '/admin' || path.endsWith('/admin')) {
+        setView('admin');
+      }
+
+      // 2. Load dynamic data
       const dbProtocols = await fetchProtocols();
       if (dbProtocols && dbProtocols.length > 0) {
         const mapped = dbProtocols.map((p: any) => ({
@@ -64,7 +73,6 @@ export default function App() {
       return;
     }
 
-    // Salva no Supabase de forma assíncrona (não bloqueia a UI)
     saveCheckIn(data);
 
     setAppState(prev => ({
@@ -94,6 +102,12 @@ export default function App() {
   const handleUpgrade = () => {
     setAppState(prev => ({ ...prev, isPremium: true }));
     setShowPremiumModal(false);
+  };
+
+  const handleBackFromAdmin = () => {
+    // Clear the /admin path from the URL without reloading
+    window.history.pushState({}, '', '/');
+    setView('dashboard');
   };
 
   if (isLoading) {
@@ -226,15 +240,6 @@ export default function App() {
               ))}
             </div>
           </div>
-
-          <div className="pt-12 text-center">
-            <button 
-              onClick={() => setView('admin')}
-              className="text-[10px] text-stone-300 hover:text-stone-500 font-bold tracking-widest uppercase transition-colors"
-            >
-              Painel do Curador
-            </button>
-          </div>
         </div>
       )}
 
@@ -253,7 +258,7 @@ export default function App() {
         <AdminView 
           protocols={protocols} 
           onSave={setProtocols} 
-          onBack={() => setView('dashboard')} 
+          onBack={handleBackFromAdmin} 
         />
       )}
 
