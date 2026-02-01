@@ -118,7 +118,7 @@ export default function App() {
         await signInWithEmail(authEmail, authPassword);
       } else {
         await signUpWithEmail(authEmail, authPassword);
-        alert("Conta criada com sucesso! Verifique seu e-mail ou faça login.");
+        alert("Conta criada com sucesso! Verifique seu e-mail para confirmar (se ativado no Supabase) ou faça login.");
         setAuthMode('login');
       }
     } catch (err: any) {
@@ -287,23 +287,7 @@ export default function App() {
 
       {view === 'dashboard' && (
         <div className="animate-in fade-in duration-500 space-y-10">
-          <div className="flex items-center gap-3">
-             {user?.user_metadata?.avatar_url ? (
-               <img src={user?.user_metadata?.avatar_url} className="w-10 h-10 rounded-full border border-stone-200" alt="Avatar" />
-             ) : (
-               <div className="w-10 h-10 rounded-full bg-stone-200 flex items-center justify-center text-stone-500 font-bold uppercase">
-                 {user?.email?.charAt(0)}
-               </div>
-             )}
-             <div>
-               <p className="text-xs text-stone-400 font-light">Bom dia,</p>
-               <h4 className="font-medium text-stone-800">
-                 {user?.user_metadata?.full_name?.split(' ')[0] || user?.email?.split('@')[0]}
-               </h4>
-             </div>
-          </div>
-
-          <div className="bg-white/40 p-8 rounded-[2rem] border border-white/60 shadow-sm">
+          <div className="bg-white/40 p-8 rounded-[2rem] border border-white/60 shadow-sm mt-4">
             <span className="text-[10px] uppercase tracking-widest text-stone-400 font-bold mb-3 block">Âncora de hoje</span>
             <p className="serif text-2xl text-stone-800 leading-snug italic">"{dailyPhrase}"</p>
           </div>
