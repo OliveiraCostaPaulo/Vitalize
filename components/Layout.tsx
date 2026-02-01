@@ -4,9 +4,11 @@ import React, { useState } from 'react';
 interface LayoutProps {
   children: React.ReactNode;
   onLogoClick?: () => void;
+  user?: any;
+  onLogout?: () => void;
 }
 
-export const Layout: React.FC<LayoutProps> = ({ children, onLogoClick }) => {
+export const Layout: React.FC<LayoutProps> = ({ children, onLogoClick, user, onLogout }) => {
   const [clickCount, setClickCount] = useState(0);
 
   const handleTitleClick = () => {
@@ -15,12 +17,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, onLogoClick }) => {
     const newCount = clickCount + 1;
     setClickCount(newCount);
     
-    // Se clicar 5 vezes em sucessão rápida (resetamos o contador após 3 segundos)
     if (newCount === 5) {
       onLogoClick();
       setClickCount(0);
     }
-
     setTimeout(() => setClickCount(0), 3000);
   };
 
@@ -37,9 +37,19 @@ export const Layout: React.FC<LayoutProps> = ({ children, onLogoClick }) => {
         >
           Vitalize
         </h1>
-        <div className="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center">
-          <span className="text-xs font-medium text-stone-500">V</span>
-        </div>
+        
+        {user ? (
+          <button 
+            onClick={onLogout}
+            className="text-[10px] uppercase tracking-widest font-bold text-stone-400 hover:text-stone-800 transition-colors"
+          >
+            Sair
+          </button>
+        ) : (
+          <div className="w-8 h-8 rounded-full bg-stone-200 flex items-center justify-center">
+            <span className="text-xs font-medium text-stone-500">V</span>
+          </div>
+        )}
       </header>
 
       <main className="flex-1 flex flex-col">

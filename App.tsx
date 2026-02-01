@@ -8,7 +8,15 @@ import { AdminView } from './components/AdminView';
 import { AppState, UserCheckIn, Protocol } from './types';
 import { ANCHOR_PHRASES, PROTOCOLS as STATIC_PROTOCOLS } from './constants';
 import { getProtocolSuggestion } from './services/geminiService';
-import { fetchProtocols, saveCheckIn } from './services/supabaseClient';
+import { 
+  supabase, 
+  fetchProtocols, 
+  saveCheckIn, 
+  signInWithGoogle, 
+  signOut, 
+  getProfile,
+  updateProfilePremium 
+} from './services/supabaseClient';
 
 const INITIAL_STATE: AppState = {
   isLoggedIn: false,
@@ -20,7 +28,8 @@ const INITIAL_STATE: AppState = {
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>(INITIAL_STATE);
-  const [view, setView] = useState<'landing' | 'onboarding' | 'checkin' | 'dashboard' | 'protocol' | 'admin'>('landing');
+  const [user, setUser] = useState<any>(null);
+  const [view, setView] = useState<'landing' | 'auth' | 'onboarding' | 'checkin' | 'dashboard' | 'protocol' | 'admin'>('landing');
   const [activeProtocol, setActiveProtocol] = useState<Protocol | null>(null);
   const [suggestion, setSuggestion] = useState<{ protocolId: string; reason: string } | null>(null);
   const [isSuggesting, setIsSuggesting] = useState(false);
@@ -29,20 +38,53 @@ export default function App() {
   
   const [protocols, setProtocols] = useState<Protocol[]>(STATIC_PROTOCOLS);
 
+  // Monitorar Estado de Autenticação
   useEffect(() => {
-    async function initData() {
-      // 1. Verificar acesso administrativo via URL (?curador=true ou #admin)
-      const params = new URLSearchParams(window.location.search);
-      const isCuradorParam = params.get('curador') === 'true';
-      const isCuradorHash = window.location.hash === '#admin';
+    // 1. Checar sessão atual
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      handleUserSession(session);
+    });
+
+    // 2. Escutar mudanças (login/logout)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      handleUserSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleUserSession = async (session: any) => {
+    if (session?.user) {
+      setUser(session.user);
+      const profile = await getProfile(session.user.id);
+      setAppState(prev => ({ 
+        ...prev, 
+        isLoggedIn: true, 
+        isPremium: profile?.is_premium || false 
+      }));
       
-      if (isCuradorParam || isCuradorHash) {
+      // Se estava na landing ou auth, vai pro dashboard
+      if (view === 'landing' || view === 'auth') {
+        setView('dashboard');
+      }
+    } else {
+      setUser(null);
+      setAppState(INITIAL_STATE);
+      // Se não estiver logado e não for landing, volta pra landing
+      if (view !== 'landing') setView('landing');
+    }
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    async function loadData() {
+      // Verificar acesso administrativo via URL
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('curador') === 'true') {
         setView('admin');
-        // Limpar a URL para não ficar óbvio
         window.history.replaceState({}, '', window.location.pathname);
       }
 
-      // 2. Carregar protocolos do banco
       const dbProtocols = await fetchProtocols();
       if (dbProtocols && dbProtocols.length > 0) {
         const mapped = dbProtocols.map((p: any) => ({
@@ -55,20 +97,14 @@ export default function App() {
         }));
         setProtocols(mapped);
       }
-      setIsLoading(false);
     }
-    initData();
-  }, []);
+    if (appState.isLoggedIn) loadData();
+  }, [appState.isLoggedIn]);
 
   const dailyPhrase = useMemo(() => {
     const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 24));
     return ANCHOR_PHRASES[dayOfYear % ANCHOR_PHRASES.length];
   }, []);
-
-  const handleLogin = (premium = false) => {
-    setAppState(prev => ({ ...prev, isLoggedIn: true, isPremium: premium }));
-    setView('dashboard');
-  };
 
   const onCheckInComplete = async (data: UserCheckIn) => {
     if (!appState.isPremium && appState.dailyCheckInDone) {
@@ -77,7 +113,7 @@ export default function App() {
       return;
     }
 
-    saveCheckIn(data);
+    saveCheckIn(data, user?.id);
 
     setAppState(prev => ({
       ...prev,
@@ -103,13 +139,16 @@ export default function App() {
     setView('protocol');
   };
 
-  const handleUpgrade = () => {
-    setAppState(prev => ({ ...prev, isPremium: true }));
-    setShowPremiumModal(false);
+  const handleUpgrade = async () => {
+    if (user) {
+      await updateProfilePremium(user.id, true);
+      setAppState(prev => ({ ...prev, isPremium: true }));
+      setShowPremiumModal(false);
+    }
   };
 
-  const handleSecretAdminTrigger = () => {
-    setView('admin');
+  const handleLogout = async () => {
+    await signOut();
   };
 
   if (isLoading) {
@@ -117,14 +156,18 @@ export default function App() {
       <Layout>
         <div className="flex flex-col items-center justify-center h-full text-stone-400">
           <div className="w-8 h-8 border-2 border-stone-200 border-t-stone-800 rounded-full animate-spin mb-4"></div>
-          <p className="text-sm font-light italic">Sincronizando frequências...</p>
+          <p className="text-sm font-light italic">Carregando sua presença...</p>
         </div>
       </Layout>
     );
   }
 
   return (
-    <Layout onLogoClick={handleSecretAdminTrigger}>
+    <Layout 
+      onLogoClick={() => setView('admin')} 
+      user={user} 
+      onLogout={handleLogout}
+    >
       {view === 'landing' && (
         <div className="flex flex-col items-center justify-center h-full text-center animate-in fade-in duration-1000">
           <div className="mb-12">
@@ -135,40 +178,45 @@ export default function App() {
           </div>
           <div className="space-y-4 w-full">
             <button 
-              onClick={() => setView('onboarding')}
+              onClick={() => setView('auth')}
               className="w-full py-5 rounded-full btn-vitalize text-lg shadow-xl"
             >
               Começar agora
             </button>
-            <button 
-              onClick={() => handleLogin(true)}
-              className="w-full py-3 text-stone-400 text-sm font-medium hover:text-stone-800 transition-colors"
-            >
-              Já tenho uma conta
-            </button>
+            <p className="text-[10px] text-stone-400 uppercase tracking-widest font-bold">Baseado em ciência aplicada</p>
           </div>
         </div>
       )}
 
-      {view === 'onboarding' && (
-        <div className="flex flex-col h-full animate-in fade-in slide-in-from-right-4 duration-500">
-          <h2 className="serif text-4xl mb-6 mt-12">Isso não é terapia.</h2>
-          <p className="text-stone-500 font-light text-lg mb-8 leading-relaxed">
-            É um espaço para seu corpo aprender que é seguro existir. Através de protocolos de 5-10 minutos, mudamos seu estado interno.
-          </p>
-          <div className="mt-auto pb-12">
-             <button 
-              onClick={() => handleLogin(false)}
-              className="w-full py-5 rounded-full btn-vitalize text-lg shadow-xl"
-            >
-              Entendi
-            </button>
+      {view === 'auth' && (
+        <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500 justify-center">
+          <div className="text-center mb-10">
+            <h2 className="serif text-4xl mb-4">Bem-vindo de volta.</h2>
+            <p className="text-stone-500 font-light">Identifique-se para continuar sua jornada de regulação.</p>
           </div>
+          
+          <button 
+            onClick={() => signInWithGoogle()}
+            className="w-full flex items-center justify-center gap-3 py-4 px-6 bg-white border border-stone-200 rounded-2xl shadow-sm hover:bg-stone-50 transition-all active:scale-95"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+            <span className="font-medium text-stone-700">Entrar com Google</span>
+          </button>
+          
+          <button onClick={() => setView('landing')} className="mt-6 text-stone-400 text-sm hover:text-stone-600">Voltar</button>
         </div>
       )}
 
       {view === 'dashboard' && (
         <div className="animate-in fade-in duration-500 space-y-10">
+          <div className="flex items-center gap-3">
+             <img src={user?.user_metadata?.avatar_url} className="w-10 h-10 rounded-full border border-stone-200" alt="Avatar" />
+             <div>
+               <p className="text-xs text-stone-400 font-light">Bom dia,</p>
+               <h4 className="font-medium text-stone-800">{user?.user_metadata?.full_name?.split(' ')[0]}</h4>
+             </div>
+          </div>
+
           <div className="bg-white/40 p-8 rounded-[2rem] border border-white/60 shadow-sm">
             <span className="text-[10px] uppercase tracking-widest text-stone-400 font-bold mb-3 block">Âncora de hoje</span>
             <p className="serif text-2xl text-stone-800 leading-snug italic">"{dailyPhrase}"</p>
@@ -217,7 +265,7 @@ export default function App() {
             </div>
           )}
 
-          <div className="space-y-6">
+          <div className="space-y-6 pb-12">
             <h3 className="serif text-2xl">Explorar Protocolos</h3>
             <div className="space-y-4">
               {protocols.map(p => (
@@ -245,24 +293,9 @@ export default function App() {
         </div>
       )}
 
-      {view === 'checkin' && (
-        <CheckInForm onComplete={onCheckInComplete} />
-      )}
-
-      {view === 'protocol' && activeProtocol && (
-        <ProtocolPlayer 
-          protocol={activeProtocol} 
-          onClose={() => setView('dashboard')} 
-        />
-      )}
-
-      {view === 'admin' && (
-        <AdminView 
-          protocols={protocols} 
-          onSave={setProtocols} 
-          onBack={() => setView('dashboard')} 
-        />
-      )}
+      {view === 'checkin' && <CheckInForm onComplete={onCheckInComplete} />}
+      {view === 'protocol' && activeProtocol && <ProtocolPlayer protocol={activeProtocol} onClose={() => setView('dashboard')} />}
+      {view === 'admin' && <AdminView protocols={protocols} onSave={setProtocols} onBack={() => setView('dashboard')} />}
 
       {showPremiumModal && (
         <PremiumModal 

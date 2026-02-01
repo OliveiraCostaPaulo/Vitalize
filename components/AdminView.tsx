@@ -1,7 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Protocol } from '../types';
-import { upsertProtocol, deleteProtocolFromDb } from '../services/supabaseClient';
+import { upsertProtocol, deleteProtocolFromDb, uploadAudioFile } from '../services/supabaseClient';
 
 interface AdminViewProps {
   protocols: Protocol[];
@@ -13,6 +13,8 @@ export const AdminView: React.FC<AdminViewProps> = ({ protocols, onSave, onBack 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Protocol>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleEdit = (p: Protocol) => {
     setEditingId(p.id);
@@ -29,6 +31,27 @@ export const AdminView: React.FC<AdminViewProps> = ({ protocols, onSave, onBack 
       premium: false,
       audioUrl: ''
     });
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validar se é áudio
+    if (!file.type.startsWith('audio/')) {
+      alert("Por favor, selecione um arquivo de áudio válido (MP3, WAV, etc).");
+      return;
+    }
+
+    setIsUploading(true);
+    const publicUrl = await uploadAudioFile(file);
+    
+    if (publicUrl) {
+      setFormData(prev => ({ ...prev, audioUrl: publicUrl }));
+    } else {
+      alert("Falha ao subir arquivo para o servidor.");
+    }
+    setIsUploading(false);
   };
 
   const handleSave = async () => {
@@ -116,24 +139,57 @@ export const AdminView: React.FC<AdminViewProps> = ({ protocols, onSave, onBack 
             </div>
           </div>
 
-          <div className="space-y-1">
-            <label className="text-[10px] uppercase font-bold text-stone-400">URL do Áudio (.mp3)</label>
+          <div className="space-y-2">
+            <label className="text-[10px] uppercase font-bold text-stone-400 block">Arquivo de Áudio</label>
+            
             <input 
-              className="w-full p-3 bg-stone-50 rounded-xl border border-stone-100 focus:ring-1 focus:ring-stone-400 outline-none"
-              value={formData.audioUrl} 
-              onChange={e => setFormData({...formData, audioUrl: e.target.value})}
+              type="file" 
+              accept="audio/*"
+              className="hidden" 
+              ref={fileInputRef}
+              onChange={handleFileChange}
             />
+            
+            <div className="flex gap-2">
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className={`flex items-center gap-2 px-4 py-2 bg-stone-100 text-stone-600 rounded-lg text-sm font-medium border border-stone-200 hover:bg-stone-200 transition-colors ${isUploading ? 'opacity-50' : ''}`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                {isUploading ? 'Subindo...' : 'Subir MP3'}
+              </button>
+              
+              <input 
+                className="flex-1 p-2 bg-stone-50 rounded-lg border border-stone-100 text-[10px] text-stone-400 italic outline-none"
+                placeholder="Ou cole a URL aqui..."
+                value={formData.audioUrl} 
+                onChange={e => setFormData({...formData, audioUrl: e.target.value})}
+              />
+            </div>
+            {formData.audioUrl && !isUploading && (
+              <p className="text-[10px] text-green-600 font-medium flex items-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Áudio vinculado com sucesso.
+              </p>
+            )}
           </div>
 
           <div className="flex gap-3 pt-4">
             <button 
               onClick={handleSave} 
-              disabled={isSaving}
-              className={`flex-1 py-3 bg-stone-800 text-white rounded-xl font-medium shadow-md ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={isSaving || isUploading}
+              className={`flex-1 py-3 bg-stone-800 text-white rounded-xl font-medium shadow-md ${(isSaving || isUploading) ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              {isSaving ? 'Salvando...' : 'Salvar'}
+              {isSaving ? 'Salvando...' : 'Salvar Protocolo'}
             </button>
-            <button onClick={() => setEditingId(null)} className="flex-1 py-3 bg-stone-100 text-stone-600 rounded-xl font-medium">Cancelar</button>
+            <button 
+              onClick={() => setEditingId(null)} 
+              disabled={isSaving || isUploading}
+              className="flex-1 py-3 bg-stone-100 text-stone-600 rounded-xl font-medium"
+            >
+              Cancelar
+            </button>
           </div>
         </div>
       ) : (
